@@ -1,0 +1,30 @@
+@import "tailwindcss";
+
+@theme {
+  --animate-gradient-border: gradient-border 3s linear infinite;
+  --animate-fade-in-up: fadeInUp 0.5s ease-out forwards;
+  --animate-float: float 6s ease-in-out infinite;
+
+  @keyframes gradient-border {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+
+  @keyframes fadeInUp {
+    from {
+      opacity: 0;
+      transform: translate3d(0, 20px, 0);
+    }
+    to {
+      opacity: 1;
+      transform: translate3d(0, 0, 0);
+    }
+  }
+
+  @keyframes float {
+    0% { transform: translateY(0px) rotate(12deg); }
+    50% { transform: translateY(-20px) rotate(12deg); }
+    100% { transform: translateY(0px) rotate(12deg); }
+  }
+}

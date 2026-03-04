@@ -4,8 +4,9 @@ import {
   Camera, Zap, Speaker, Gamepad2, Package, Coins,
   UploadCloud, AlertCircle, Info, ChevronRight, CheckCircle2,
   ShieldCheck, Clock, MapPin, Phone, Calculator, Image as ImageIcon,
-  AlertTriangle, MessageCircle, X, FileText, Lock
+  AlertTriangle, MessageCircle, X, FileText, Lock, Loader2
 } from 'lucide-react';
+import { analyzeGadai, TaksiranResult } from './services/geminiService';
 
 export default function App() {
   // State Management untuk Form
@@ -28,15 +29,8 @@ export default function App() {
 
   // State untuk Kalkulasi & UI
   const [isCalculating, setIsCalculating] = useState(false);
-  const [result, setResult] = useState<{
-    hargaBekas: number;
-    nilaiGadai: number;
-    bunga: number;
-    nilaiPengembalian: number;
-    nominalDenda: number;
-    nominalBungaBerikutnya: number;
-    totalTebusTelat: number;
-  } | null>(null);
+  const [mismatchError, setMismatchError] = useState<string | null>(null);
+  const [result, setResult] = useState<TaksiranResult | null>(null);
   const resultRef = useRef<HTMLDivElement>(null);
 
   // Kategori Barang
@@ -81,7 +75,7 @@ export default function App() {
   };
 
   // Simulasi Sistem untuk menaksir harga
-  const handleCalculate = (e: React.FormEvent) => {
+  const handleCalculate = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!category || !brand || !type || !purchaseDate || !condition) {
@@ -95,47 +89,56 @@ export default function App() {
 
     setIsCalculating(true);
     setResult(null);
+    setMismatchError(null);
 
-    // Jeda simulasi proses sistem (2 detik)
-    setTimeout(() => {
-      let baseHargaBekas = 0;
-      switch (category) {
-        case 'smartphone': baseHargaBekas = 3500000; break;
-        case 'laptop': baseHargaBekas = 6000000; break;
-        case 'motor': baseHargaBekas = 12000000; break;
-        case 'tablet': baseHargaBekas = 4000000; break;
-        case 'kamera': baseHargaBekas = 5500000; break;
-        case 'ps': baseHargaBekas = 4500000; break;
-        case 'emas': baseHargaBekas = 5000000; break;
-        default: baseHargaBekas = 2000000;
+    try {
+      // Convert files to base64
+      const fileToBase64 = (file: File): Promise<string> => {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.readAsDataURL(file);
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = error => reject(error);
+        });
+      };
+
+      const itemImagePromises = itemFiles.map(file => fileToBase64(file));
+      const boxImagePromises = boxFiles.map(file => fileToBase64(file));
+      
+      const [itemBase64, boxBase64] = await Promise.all([
+        Promise.all(itemImagePromises),
+        Promise.all(boxImagePromises)
+      ]);
+
+      const base64Images = [...itemBase64, ...boxBase64];
+
+      const aiResult = await analyzeGadai(
+        category,
+        brand,
+        type,
+        purchaseDate,
+        condition,
+        base64Images
+      );
+
+      if (!aiResult.isMatch) {
+        setMismatchError(aiResult.mismatchReason || `Gambar tidak sesuai. Kami mendeteksi barang ini sebagai ${aiResult.detectedDevice}.`);
+        setIsCalculating(false);
+        return;
       }
 
-      if (condition === 'baru') baseHargaBekas += (baseHargaBekas * 0.15); 
-      
-      const nilaiGadai = baseHargaBekas - (baseHargaBekas * 0.20);
-      const bunga = nilaiGadai * 0.10;
-      const nilaiPengembalian = nilaiGadai + bunga;
-
-      const nominalDenda = nilaiGadai * 0.05;
-      const nominalBungaBerikutnya = nilaiGadai * 0.10;
-      const totalTebusTelat = nilaiPengembalian + nominalDenda + nominalBungaBerikutnya;
-
-      setResult({
-        hargaBekas: baseHargaBekas,
-        nilaiGadai,
-        bunga,
-        nilaiPengembalian,
-        nominalDenda,
-        nominalBungaBerikutnya,
-        totalTebusTelat
-      });
+      setResult(aiResult);
       setIsCalculating(false);
 
       setTimeout(() => {
         resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }, 150);
 
-    }, 2000);
+    } catch (error) {
+      console.error("Error calculating:", error);
+      alert("Terjadi kesalahan saat menghubungi sistem AI. Mohon coba lagi.");
+      setIsCalculating(false);
+    }
   };
 
   // Generate Link WhatsApp
@@ -459,6 +462,17 @@ export default function App() {
               </div>
             </div>
 
+            {/* Mismatch Error */}
+            {mismatchError && (
+              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3 animate-fade-in-up">
+                <AlertCircle className="text-red-600 shrink-0 mt-0.5" size={20} />
+                <div>
+                  <p className="text-sm font-bold text-red-800">Peringatan Ketidaksesuaian</p>
+                  <p className="text-xs text-red-700 leading-relaxed">{mismatchError}</p>
+                </div>
+              </div>
+            )}
+
             {/* Tombol Submit */}
             <div className="pt-2">
               <button 
@@ -472,11 +486,8 @@ export default function App() {
               >
                 {isCalculating ? (
                   <>
-                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    Menghitung Taksiran Harga...
+                    <Loader2 className="animate-spin h-5 w-5 text-white" />
+                    Sistem Sedang Menganalisis Barang...
                   </>
                 ) : (
                   <>Hitung Estimasi Nilai Gadai</>
@@ -606,6 +617,16 @@ export default function App() {
                         <span>{formatRupiah(result.bunga)}</span>
                       </div>
                     </div>
+                  </div>
+
+                  {/* System Explanation */}
+                  <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100/50">
+                    <p className="text-[10px] sm:text-xs font-bold text-blue-800 mb-1 flex items-center gap-1.5 uppercase tracking-wider">
+                      <Zap size={12} /> Analisis Sistem Kami
+                    </p>
+                    <p className="text-[10px] sm:text-xs text-slate-600 italic leading-relaxed">
+                      "{result.explanation}"
+                    </p>
                   </div>
                 </div>
 
